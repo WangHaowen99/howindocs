@@ -45,6 +45,46 @@ howindocs/
 4. 做索引：对长期关注的主题建立 `maps/`，把分散笔记串起来。
 5. 常复盘：删除过期内容，合并重复内容，更新已经变化的判断。
 
+## 自动整理监视器
+
+仓库内置一个本地监视任务：当文档发生 Git 可见变化，并且距离上一次整理尝试已经超过 15 分钟时，它会调用 `codex exec` 进行内容整理，更新 `index.md`，提交并推送到 GitHub。
+
+启动监视器：
+
+```bash
+python3 scripts/doc_watch.py start
+```
+
+查看状态：
+
+```bash
+python3 scripts/doc_watch.py status
+```
+
+停止监视器：
+
+```bash
+python3 scripts/doc_watch.py stop
+```
+
+手动执行一次：
+
+```bash
+python3 scripts/doc_watch.py run-once --force
+```
+
+运行状态和日志保存在 `.codex-doc-watch/`，该目录已被 Git 忽略。默认配置如下：
+
+- `CODEX_DOC_WATCH_INTERVAL_SECONDS=30`：每 30 秒检查一次 Git 状态。
+- `CODEX_DOC_WATCH_COOLDOWN_SECONDS=900`：两次整理尝试至少间隔 15 分钟。
+- `CODEX_DOC_WATCH_CODEX=codex`：使用当前 PATH 中的 Codex CLI。
+- `CODEX_DOC_WATCH_CODEX_ARGS="exec --full-auto --sandbox danger-full-access"`：后台调用 Codex 的默认参数。
+- `CODEX_DOC_WATCH_REMOTE=origin`：推送远端。
+- `CODEX_DOC_WATCH_BRANCH=<当前分支>`：推送分支，默认自动读取当前分支。
+- `CODEX_DOC_WATCH_DRY_RUN=1`：只写出 Codex 提示词，不真正调用 Codex，便于调试。
+
+监视器会忽略 `.git/`、`.codex-doc-watch/`、`scripts/`、`tests/` 和 `docs/superpowers/`，避免把自动化脚本、测试或规划文档误当成待整理知识内容。
+
 ## 写作建议
 
 每篇笔记可以尽量回答几个问题：
@@ -58,4 +98,3 @@ howindocs/
 ## 维护目标
 
 长期来看，这个仓库应该成为个人知识管理的基础设施：既能保存资料，也能帮助形成判断；既能记录过程，也能支持输出。
-
