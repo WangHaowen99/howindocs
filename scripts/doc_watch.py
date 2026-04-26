@@ -231,6 +231,116 @@ def run_command(
     )
 
 
+def process_child_lines(pid: int) -> list[str]:
+    result = subprocess.run(
+        ["ps", "--ppid", str(pid), "-o", "pid=,ppid=,stat=,etime=,cmd="],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        return []
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def git_status_text(root: Path) -> str:
+    result = subprocess.run(
+        ["git", "-c", "core.quotepath=false", "status", "--short", "--branch"],
+        cwd=root,
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        return f"git status unavailable: {result.stderr.strip() or result.stdout.strip()}"
+    return result.stdout
+
+
+def latest_codex_log_path(root: Path) -> Path | None:
+    log_root = state_dir(root) / LOG_DIR
+    if not log_root.exists():
+        return None
+    logs = sorted(log_root.glob("codex-*.log"), key=lambda path: path.stat().st_mtime)
+    if not logs:
+        return None
+    return logs[-1]
+
+
+def result_summary(state: dict) -> str:
+    code = state.get("last_result_code")
+    timestamp = state.get("last_result_at")
+    if code is None:
+        return "unknown"
+    label = "success" if int(code) == 0 else "failed"
+    if timestamp:
+        return f"{label} ({code}) at {timestamp}"
+    return f"{label} ({code})"
+
+
+def format_status_panel(
+    *,
+    root: Path,
+    pid: int | None,
+    running: bool,
+    child_processes: list[str],
+    state: dict,
+    git_status: str,
+    watcher_log: Path,
+    latest_codex_log: Path | None,
+) -> str:
+    lines = [
+        "Document Watcher Status",
+        f"Repository: {root}",
+    ]
+
+    if pid and running:
+        lines.append(f"Watcher: running (pid {pid})")
+    elif pid:
+        lines.append(f"Watcher: not running (stale pid {pid})")
+    else:
+        lines.append("Watcher: not running")
+
+    if child_processes:
+        lines.append("Codex job: running")
+        lines.extend(f"  {child}" for child in child_processes)
+    else:
+        lines.append("Codex job: idle")
+
+    lines.extend(
+        [
+            f"Last attempt: {state.get('last_attempt_at', 'never')}",
+            f"Last result: {result_summary(state)}",
+            f"Next eligible run: {state.get('next_run_at', 'now')}",
+        ]
+    )
+
+    pending_paths = state.get("pending_paths") or []
+    if pending_paths:
+        lines.append("Pending paths:")
+        lines.extend(f"- {path}" for path in pending_paths)
+    else:
+        lines.append("Pending paths: none")
+
+    status_lines = [line.strip() for line in git_status.splitlines() if line.strip()]
+    changed_lines = [
+        line for line in status_lines if not line.startswith("## ")
+    ]
+    if changed_lines:
+        lines.append("Git status:")
+        lines.extend(f"  {line}" for line in status_lines)
+    else:
+        branch = status_lines[0] if status_lines else "unknown branch"
+        lines.append(f"Git status: clean ({branch})")
+
+    lines.extend(
+        [
+            f"Watcher log: {watcher_log}",
+            f"Latest Codex log: {latest_codex_log if latest_codex_log else 'none'}",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
 def codex_log_path(root: Path) -> Path:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     return state_dir(root) / LOG_DIR / f"codex-{timestamp}.log"
@@ -426,14 +536,19 @@ def stop_daemon(root: Path) -> int:
 
 def status_daemon(root: Path) -> int:
     pid = read_pid(root)
-    if pid and is_pid_running(pid):
-        print(f"doc watcher running with pid {pid}")
-        return 0
-    if pid:
-        print(f"doc watcher not running; stale pid {pid}")
-        return 1
-    print("doc watcher not running")
-    return 1
+    running = bool(pid and is_pid_running(pid))
+    panel = format_status_panel(
+        root=root,
+        pid=pid,
+        running=running,
+        child_processes=process_child_lines(pid) if running and pid else [],
+        state=load_state(root),
+        git_status=git_status_text(root),
+        watcher_log=watcher_log_path(root),
+        latest_codex_log=latest_codex_log_path(root),
+    )
+    print(panel, end="")
+    return 0 if running else 1
 
 
 def daemon(root: Path) -> int:
@@ -471,7 +586,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("start", help="Start the watcher in the background.")
     subparsers.add_parser("stop", help="Stop the background watcher.")
-    subparsers.add_parser("status", help="Show watcher status.")
+    subparsers.add_parser("status", help="Show detailed watcher status.")
     subparsers.add_parser("daemon", help="Run the watcher loop in the foreground.")
     run_once = subparsers.add_parser("run-once", help="Process pending changes once.")
     run_once.add_argument(

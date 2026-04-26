@@ -61,6 +61,8 @@ python3 scripts/doc_watch.py start
 python3 scripts/doc_watch.py status
 ```
 
+状态面板会显示监视器进程、当前 Codex 子进程、上次执行时间、上次结果、待处理文档、Git 工作区摘要和日志路径。
+
 停止监视器：
 
 ```bash

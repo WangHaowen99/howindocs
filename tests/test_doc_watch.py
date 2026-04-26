@@ -91,5 +91,61 @@ class PromptTests(unittest.TestCase):
         self.assertIn("不要编辑", prompt)
 
 
+class StatusPanelTests(unittest.TestCase):
+    def test_format_status_panel_includes_process_state_and_runtime_metadata(self):
+        panel = doc_watch.format_status_panel(
+            root=Path("/repo/howindocs"),
+            pid=123,
+            running=True,
+            child_processes=[
+                "456 123 Sl 00:20 node /usr/bin/codex exec --cd /repo/howindocs -",
+            ],
+            state={
+                "last_attempt_at": "2026-04-26T12:41:35+00:00",
+                "last_result_at": "2026-04-26T12:46:41+00:00",
+                "last_result_code": 0,
+                "pending_paths": ["notes/new.md"],
+                "next_run_at": "2026-04-26T12:56:35+00:00",
+            },
+            git_status="## main...origin/main\n M index.md\n?? .codex\n",
+            watcher_log=Path("/repo/howindocs/.codex-doc-watch/logs/watcher.log"),
+            latest_codex_log=Path("/repo/howindocs/.codex-doc-watch/logs/codex-20260426-124135.log"),
+        )
+
+        self.assertIn("Document Watcher Status", panel)
+        self.assertIn("Watcher: running (pid 123)", panel)
+        self.assertIn("Codex job: running", panel)
+        self.assertIn("456 123 Sl 00:20 node /usr/bin/codex exec", panel)
+        self.assertIn("Last attempt: 2026-04-26T12:41:35+00:00", panel)
+        self.assertIn("Last result: success (0) at 2026-04-26T12:46:41+00:00", panel)
+        self.assertIn("Next eligible run: 2026-04-26T12:56:35+00:00", panel)
+        self.assertIn("Pending paths:", panel)
+        self.assertIn("- notes/new.md", panel)
+        self.assertIn("Git status:", panel)
+        self.assertIn("M index.md", panel)
+        self.assertIn("?? .codex", panel)
+        self.assertIn("watcher.log", panel)
+        self.assertIn("codex-20260426-124135.log", panel)
+
+    def test_format_status_panel_handles_idle_clean_state(self):
+        panel = doc_watch.format_status_panel(
+            root=Path("/repo/howindocs"),
+            pid=123,
+            running=True,
+            child_processes=[],
+            state={"last_result_code": 1},
+            git_status="## main...origin/main\n",
+            watcher_log=Path("/repo/howindocs/.codex-doc-watch/logs/watcher.log"),
+            latest_codex_log=None,
+        )
+
+        self.assertIn("Watcher: running (pid 123)", panel)
+        self.assertIn("Codex job: idle", panel)
+        self.assertIn("Last result: failed (1)", panel)
+        self.assertIn("Pending paths: none", panel)
+        self.assertIn("Git status: clean", panel)
+        self.assertIn("Latest Codex log: none", panel)
+
+
 if __name__ == "__main__":
     unittest.main()
